@@ -11,6 +11,6 @@ COPY LICENSE /usr/src/app/
 
 EXPOSE 9206
 
-LABEL source_repository="https://github.com/max-len/prometheus-es-exporter"
+LABEL source_repository="https://github.com/sapcc/prometheus-es-exporter"
 
 ENTRYPOINT ["python", "-u", "/usr/local/bin/prometheus-es-exporter"]
