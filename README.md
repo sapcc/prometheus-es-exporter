@@ -50,6 +50,7 @@ Sum by index to calculate the total fields per index. Useful for checking if an 
 ```
 sum(es_indices_mappings_field_count) by(index) > 900
 ```
+Note that these counts don't include system fields (ones prefixed with `_`, e.g. `_id`), so may be slightly lower than the field count used by Elasticsearch to check the field limit.
 
 # Installation
 The exporter requires Python 3 and Pip 3 to be installed.
@@ -94,7 +95,7 @@ If you don't want to mount the query config file in at run time, you could exten
 # Helm
 A Helm chart is available from the Helm repo at [https://braedon.github.io/helm](https://braedon.github.io/helm/).
 ```bash
-> helm repo add braedon https://braedon.github.com/helm
+> helm repo add braedon https://braedon.github.io/helm
 > helm repo update
 
 > helm install braedon/prometheus-es-exporter --name <release name> \
