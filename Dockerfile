@@ -1,9 +1,10 @@
-FROM keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/library/python:3.8-slim
+FROM --platform=linux/amd64 keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/library/python:3.12-slim
 
 WORKDIR /usr/src/app
 
 COPY setup.py /usr/src/app/
 COPY README.md /usr/src/app/
+RUN python -m pip install --upgrade pip
 # Elasticsearch switched to a non open source license from version 7.11 onwards.
 # Limit to earlier versions to avoid license and compatibility issues.
 RUN pip install -e . 'elasticsearch<7.11'
