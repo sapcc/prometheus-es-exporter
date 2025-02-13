@@ -402,6 +402,49 @@ CONFIGPARSER_CONVERTERS = {
     'enum': configparser_enum_conv(('preserve', 'drop', 'zero'))
 }
 
+def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
+                     primary_auth, secondary_auth, verify_certs=True):
+    """
+    Create an Elasticsearch client using primary credentials,
+    falling back to secondary credentials if necessary.
+    """
+    def instantiate_client(auth):
+        if ca_certs:
+            return Elasticsearch(
+                es_cluster,
+                verify_certs=True,
+                ca_certs=ca_certs,
+                client_cert=client_cert,
+                client_key=client_key,
+                headers=headers,
+                http_auth=auth
+            )
+        else:
+            return Elasticsearch(
+                es_cluster,
+                verify_certs=verify_certs,
+                headers=headers,
+                http_auth=auth
+            )
+
+    # Try primary credentials first.
+    es_client = instantiate_client(primary_auth)
+    try:
+        if not es_client.ping():
+            raise Exception("Ping failed for primary basic auth credentials.")
+    except Exception as e:
+        log.warning("Primary authentication failed: %s", e)
+        if secondary_auth:
+            log.info("Falling back to secondary credentials.")
+            es_client = instantiate_client(secondary_auth)
+            if not es_client.ping():
+                raise Exception("Ping failed for secondary basic auth credentials as well.")
+        else:
+            # No secondary credentials provided
+            raise
+
+    return es_client
+
 
 @click.command(context_settings=CONTEXT_SETTINGS)
 @click.option('--es-cluster', '-e', default='localhost',
@@ -424,11 +467,17 @@ CONFIGPARSER_CONVERTERS = {
                    'Can be absolute, or relative to the current working directory. '
                    'Must be specified if "--client-cert" is provided.')
 @click.option('--basic-user',
-              help='Username for basic authentication with nodes. '
+              help='Primary username for basic authentication with nodes. '
                    'If not specified, basic authentication is disabled.')
 @click.option('--basic-password',
-              help='Password for basic authentication with nodes. '
-                   'Must be specified if "--basic-user" is provided.')
+              help='Primary password for basic authentication with nodes. '
+                   'Must be provided if --basic-user is specified.')
+@click.option('--basic-user2',
+              help='Secondary username for basic authentication with nodes. '
+                   'Used as a fallback if primary authentication fails.')
+@click.option('--basic-password2',
+              help='Secondary password for basic authentication with nodes. '
+                   'Must be provided if --basic-user2 is specified.')
 @click.option('--header', '-H',
               multiple=True,
               callback=http_headers_parser,
@@ -514,10 +563,13 @@ def cli(**options):
         raise click.BadOptionUsage('basic_user', 'Username provided with no password.')
     elif options['basic_user'] is None and options['basic_password']:
         raise click.BadOptionUsage('basic_password', 'Password provided with no username.')
-    elif options['basic_user']:
-        http_auth = (options['basic_user'], options['basic_password'])
-    else:
-        http_auth = None
+    http_auth = (options['basic_user'], options['basic_password']) if options['basic_user'] else None
+
+    if options['basic_user2'] and options['basic_password2'] is None:
+        raise click.BadOptionUsage('basic_user', 'Secondary username provided with no password.')
+    elif options['basic_user2'] is None and options['basic_password2']:
+        raise click.BadOptionUsage('basic_password', 'Secondary password provided with no username.')
+    http_auth2 = (options['basic_user2'], options['basic_password2']) if options['basic_user2'] else None
 
     if not options['ca_certs'] and options['client_cert']:
         raise click.BadOptionUsage('client_cert',
@@ -562,19 +614,14 @@ def cli(**options):
     port = options['port']
     es_cluster = options['es_cluster'].split(',')
 
-    if options['ca_certs']:
-        es_client = Elasticsearch(es_cluster,
-                                  verify_certs=True,
-                                  ca_certs=options['ca_certs'],
-                                  client_cert=options['client_cert'],
-                                  client_key=options['client_key'],
-                                  headers=options['header'],
-                                  http_auth=http_auth)
-    else:
-        es_client = Elasticsearch(es_cluster,
-                                  verify_certs=False,
-                                  headers=options['header'],
-                                  http_auth=http_auth)
+    es_client = create_es_client(es_cluster,
+                                 ca_certs=options['ca_certs'],
+                                 client_cert=options['client_cert'],
+                                 client_key=options['client_key'],
+                                 headers=options['header'],
+                                 primary_auth=http_auth,
+                                 secondary_auth=http_auth2,
+                                 verify_certs=bool(options['ca_certs']))
 
     scheduler = None
 
