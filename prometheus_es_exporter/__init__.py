@@ -403,11 +403,11 @@ CONFIGPARSER_CONVERTERS = {
 }
 
 def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
-                     http_auth, http_auth_failover, verify_certs=True):
+                     headers_failover, http_auth, http_auth_failover, verify_certs=True):
     """
     Create an Elasticsearch client with the provided parameters.
     """
-    def instantiate_client(auth):
+    def instantiate_client(auth, current_headers):
         if ca_certs:
             return Elasticsearch(
                 es_cluster,
@@ -415,28 +415,28 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
                 ca_certs=ca_certs,
                 client_cert=client_cert,
                 client_key=client_key,
-                headers=headers,
+                headers=current_headers,
                 http_auth=auth
             )
         else:
             return Elasticsearch(
                 es_cluster,
                 verify_certs=verify_certs,
-                headers=headers,
+                headers=current_headers,
                 http_auth=auth
             )
 
-    es_client = instantiate_client(http_auth)
+    es_client = instantiate_client(http_auth, headers)
     try:
         if not es_client.ping():
-            raise Exception("Ping failed for basic auth credentials.")
+            raise Exception("Ping failed for auth credentials.")
     except Exception as e:
         log.warning("Authentication failed: %s", e)
         if http_auth_failover:
-            log.info("Falling back to failover basic auth credentials.")
-            es_client = instantiate_client(http_auth_failover)
+            log.info("Falling back to failover auth credentials.")
+            es_client = instantiate_client(http_auth_failover, headers_failover)
             if not es_client.ping():
-                raise Exception("Ping failed for failover basic auth credentials as well.")
+                raise Exception("Ping failed for failover credentials as well.")
         else:
             # No secondary credentials provided
             raise
@@ -483,6 +483,13 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
                    'Header name and value should be separated by colon, e.g. '
                    '"Authorization: Bearer xxxxx". Several headers can be added '
                    'by repeating the -H parameter.')
+@click.option('--failover-header',
+              multiple=True,
+              callback=http_headers_parser,
+              help='Failover HTTP header to include in requests to the Elasticsearch cluster. '
+                   'Header name and value should be separated by colon, e.g. '
+                   '"Authorization: Bearer xxxxx". Several headers can be added '
+                   'by repeating the --failover-header parameter.')
 @click.option('--port', '-p', default=9206,
               help='Port to serve the metrics endpoint on. (default: 9206)')
 @click.option('--query-disable', default=False, is_flag=True,
@@ -563,9 +570,9 @@ def cli(**options):
         raise click.BadOptionUsage('basic_password', 'Password provided with no username.')
     http_auth = (options['basic_user'], options['basic_password']) if options['basic_user'] else None
 
-    if options['basic_user2'] and options['basic_password2'] is None:
+    if options['failover_basic_user'] and options['failover_basic_password'] is None:
         raise click.BadOptionUsage('basic_user', 'Secondary username provided with no password.')
-    elif options['basic_user2'] is None and options['basic_password2']:
+    elif options['failover_basic_user'] is None and options['failover_basic_password']:
         raise click.BadOptionUsage('basic_password', 'Secondary password provided with no username.')
     http_auth_failover = (options['failover_basic_user'], options['failover_basic_password']) if options['failover_basic_user'] else None
 
@@ -617,6 +624,7 @@ def cli(**options):
                                  client_cert=options['client_cert'],
                                  client_key=options['client_key'],
                                  headers=options['header'],
+                                 headers_failover=options['failover_header'],
                                  http_auth=http_auth,
                                  http_auth_failover=http_auth_failover,
                                  verify_certs=bool(options['ca_certs']))
