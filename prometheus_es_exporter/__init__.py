@@ -405,7 +405,7 @@ CONFIGPARSER_CONVERTERS = {
 def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
                      headers_failover, http_auth, http_auth_failover, verify_certs=True):
     """
-    Create an Elasticsearch client with the provided parameters.
+    Create an Elasticsearch client with primary and failover credentials.
     """
     def instantiate_client(auth, current_headers):
         if ca_certs:
