@@ -403,10 +403,9 @@ CONFIGPARSER_CONVERTERS = {
 }
 
 def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
-                     primary_auth, secondary_auth, verify_certs=True):
+                     http_auth, http_auth_failover, verify_certs=True):
     """
-    Create an Elasticsearch client using primary credentials,
-    falling back to secondary credentials if necessary.
+    Create an Elasticsearch client with the provided parameters.
     """
     def instantiate_client(auth):
         if ca_certs:
@@ -427,18 +426,17 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
                 http_auth=auth
             )
 
-    # Try primary credentials first.
-    es_client = instantiate_client(primary_auth)
+    es_client = instantiate_client(http_auth)
     try:
         if not es_client.ping():
-            raise Exception("Ping failed for primary basic auth credentials.")
+            raise Exception("Ping failed for basic auth credentials.")
     except Exception as e:
-        log.warning("Primary authentication failed: %s", e)
-        if secondary_auth:
-            log.info("Falling back to secondary credentials.")
-            es_client = instantiate_client(secondary_auth)
+        log.warning("Authentication failed: %s", e)
+        if http_auth_failover:
+            log.info("Falling back to failover basic auth credentials.")
+            es_client = instantiate_client(http_auth_failover)
             if not es_client.ping():
-                raise Exception("Ping failed for secondary basic auth credentials as well.")
+                raise Exception("Ping failed for failover basic auth credentials as well.")
         else:
             # No secondary credentials provided
             raise
@@ -472,12 +470,12 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
 @click.option('--basic-password',
               help='Primary password for basic authentication with nodes. '
                    'Must be provided if --basic-user is specified.')
-@click.option('--basic-user2',
+@click.option('--failover-basic-user',
               help='Secondary username for basic authentication with nodes. '
                    'Used as a fallback if primary authentication fails.')
-@click.option('--basic-password2',
+@click.option('--failover-basic-password',
               help='Secondary password for basic authentication with nodes. '
-                   'Must be provided if --basic-user2 is specified.')
+                   'Must be provided if --failover-basic-user is specified.')
 @click.option('--header', '-H',
               multiple=True,
               callback=http_headers_parser,
@@ -569,7 +567,7 @@ def cli(**options):
         raise click.BadOptionUsage('basic_user', 'Secondary username provided with no password.')
     elif options['basic_user2'] is None and options['basic_password2']:
         raise click.BadOptionUsage('basic_password', 'Secondary password provided with no username.')
-    http_auth2 = (options['basic_user2'], options['basic_password2']) if options['basic_user2'] else None
+    http_auth_failover = (options['failover_basic_user'], options['failover_basic_password']) if options['failover_basic_user'] else None
 
     if not options['ca_certs'] and options['client_cert']:
         raise click.BadOptionUsage('client_cert',
@@ -619,8 +617,8 @@ def cli(**options):
                                  client_cert=options['client_cert'],
                                  client_key=options['client_key'],
                                  headers=options['header'],
-                                 primary_auth=http_auth,
-                                 secondary_auth=http_auth2,
+                                 http_auth=http_auth,
+                                 http_auth_failover=http_auth_failover,
                                  verify_certs=bool(options['ca_certs']))
 
     scheduler = None
