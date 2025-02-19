@@ -426,17 +426,26 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
                 http_auth=auth
             )
 
+    def check_cluster_health(client):
+        try:
+            # Checking the _cluster/health endpoint (GET request)
+            health = client.cluster.health(request_timeout=10)
+            return True
+        except Exception as e:
+            log.error("Cluster health check failed: %s", e)
+            return False
+
     es_client = instantiate_client(http_auth, headers)
     try:
-        if not es_client.ping():
-            raise Exception("Ping failed for auth credentials.")
+        if not check_cluster_health(es_client):
+            raise Exception("Cluster health check failed for auth credentials.")
     except Exception as e:
-        log.warning("Authentication failed: %s", e)
+        log.error("Authentication failed: %s", e)
         if http_auth_failover:
-            log.info("Falling back to failover auth credentials.")
+            log.error("Falling back to failover auth credentials.")
             es_client = instantiate_client(http_auth_failover, headers_failover)
-            if not es_client.ping():
-                raise Exception("Ping failed for failover credentials as well.")
+            if not check_cluster_health(es_client):
+                raise Exception("Cluster health check failed for failover credentials as well. Abort!")
         else:
             # No secondary credentials provided
             raise
