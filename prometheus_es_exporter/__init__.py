@@ -426,29 +426,26 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
                 http_auth=auth
             )
 
-    def check_cluster_health(client):
+    def check_auth_credentials(client):
         try:
             # Checking the _cluster/health endpoint (GET request)
-            health = client.cluster.health(request_timeout=10)
+            client.cluster.health(request_timeout=10)
             return True
         except Exception as e:
-            log.error("Cluster health check failed: %s", e)
+            log.warning("Cluster health check failed: %s", e)
             return False
 
     es_client = instantiate_client(http_auth, headers)
-    try:
-        if not check_cluster_health(es_client):
-            raise Exception("Cluster health check failed for auth credentials.")
-    except Exception as e:
-        log.error("Authentication failed: %s", e)
-        if http_auth_failover:
-            log.error("Falling back to failover auth credentials.")
+
+    if not check_auth_credentials(es_client):
+        if http_auth_failover or headers_failover:
+            log.warning("Primary credentials failed. Falling back to failover credentials.")
             es_client = instantiate_client(http_auth_failover, headers_failover)
-            if not check_cluster_health(es_client):
+            if not check_auth_credentials(es_client):
                 raise Exception("Cluster health check failed for failover credentials as well. Abort!")
         else:
-            # No secondary credentials provided
-            raise
+            # No failover credentials provided
+            raise Exception("Authentication failed: primary credentials invalid and no failover credentials available.")
 
     return es_client
 
@@ -580,9 +577,9 @@ def cli(**options):
     http_auth = (options['basic_user'], options['basic_password']) if options['basic_user'] else None
 
     if options['failover_basic_user'] and options['failover_basic_password'] is None:
-        raise click.BadOptionUsage('basic_user', 'Secondary username provided with no password.')
+        raise click.BadOptionUsage('failover_basic_user', 'Secondary username provided with no password.')
     elif options['failover_basic_user'] is None and options['failover_basic_password']:
-        raise click.BadOptionUsage('basic_password', 'Secondary password provided with no username.')
+        raise click.BadOptionUsage('failover_basic_password', 'Secondary password provided with no username.')
     http_auth_failover = (options['failover_basic_user'], options['failover_basic_password']) if options['failover_basic_user'] else None
 
     if not options['ca_certs'] and options['client_cert']:
