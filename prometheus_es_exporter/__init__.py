@@ -449,6 +449,13 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
 
     return es_client
 
+def set_auth(user, password):
+    if user and password is None:
+        raise click.BadOptionUsage(user, 'Username provided with no password.')
+    elif user is None and password:
+      raise click.BadOptionUsage(password, 'Password provided with no username.')
+
+    return (user, password) if user else None
 
 @click.command(context_settings=CONTEXT_SETTINGS)
 @click.option('--es-cluster', '-e', default='localhost',
@@ -570,17 +577,9 @@ def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
 @click_config_file.configuration_option()
 def cli(**options):
     """Export Elasticsearch query results to Prometheus."""
-    if options['basic_user'] and options['basic_password'] is None:
-        raise click.BadOptionUsage('basic_user', 'Username provided with no password.')
-    elif options['basic_user'] is None and options['basic_password']:
-        raise click.BadOptionUsage('basic_password', 'Password provided with no username.')
-    http_auth = (options['basic_user'], options['basic_password']) if options['basic_user'] else None
 
-    if options['failover_basic_user'] and options['failover_basic_password'] is None:
-        raise click.BadOptionUsage('failover_basic_user', 'Secondary username provided with no password.')
-    elif options['failover_basic_user'] is None and options['failover_basic_password']:
-        raise click.BadOptionUsage('failover_basic_password', 'Secondary password provided with no username.')
-    http_auth_failover = (options['failover_basic_user'], options['failover_basic_password']) if options['failover_basic_user'] else None
+    http_auth = set_auth(options['basic_user'], options['basic_password'])
+    http_auth_failover = set_auth(options['failover_basic_user'], options['failover_basic_password'])
 
     if not options['ca_certs'] and options['client_cert']:
         raise click.BadOptionUsage('client_cert',
