@@ -402,6 +402,60 @@ CONFIGPARSER_CONVERTERS = {
     'enum': configparser_enum_conv(('preserve', 'drop', 'zero'))
 }
 
+def create_es_client(es_cluster, ca_certs, client_cert, client_key, headers,
+                     headers_failover, http_auth, http_auth_failover, verify_certs=True):
+    """
+    Create an Elasticsearch client with primary and failover credentials.
+    """
+    def instantiate_client(auth, current_headers):
+        if ca_certs:
+            return Elasticsearch(
+                es_cluster,
+                verify_certs=True,
+                ca_certs=ca_certs,
+                client_cert=client_cert,
+                client_key=client_key,
+                headers=current_headers,
+                http_auth=auth
+            )
+        else:
+            return Elasticsearch(
+                es_cluster,
+                verify_certs=verify_certs,
+                headers=current_headers,
+                http_auth=auth
+            )
+
+    def check_auth_credentials(client):
+        try:
+            # Checking the _cluster/health endpoint (GET request)
+            client.cluster.health(request_timeout=10)
+            return True
+        except Exception as e:
+            log.warning("Cluster health check failed: %s", e)
+            return False
+
+    es_client = instantiate_client(http_auth, headers)
+
+    if not check_auth_credentials(es_client):
+        if http_auth_failover or headers_failover:
+            log.warning("Primary credentials failed. Falling back to failover credentials.")
+            es_client = instantiate_client(http_auth_failover, headers_failover)
+            if not check_auth_credentials(es_client):
+                raise Exception("Cluster health check failed for failover credentials as well. Abort!")
+        else:
+            # No failover credentials provided
+            raise Exception("Authentication failed: primary credentials invalid and no failover credentials available.")
+
+    return es_client
+
+def set_auth(user, password):
+    if user and password is None:
+        raise click.BadOptionUsage(user, 'Username provided with no password.')
+    elif user is None and password:
+      raise click.BadOptionUsage(password, 'Password provided with no username.')
+
+    return (user, password) if user else None
 
 @click.command(context_settings=CONTEXT_SETTINGS)
 @click.option('--es-cluster', '-e', default='localhost',
@@ -424,11 +478,17 @@ CONFIGPARSER_CONVERTERS = {
                    'Can be absolute, or relative to the current working directory. '
                    'Must be specified if "--client-cert" is provided.')
 @click.option('--basic-user',
-              help='Username for basic authentication with nodes. '
+              help='Primary username for basic authentication with nodes. '
                    'If not specified, basic authentication is disabled.')
 @click.option('--basic-password',
-              help='Password for basic authentication with nodes. '
-                   'Must be specified if "--basic-user" is provided.')
+              help='Primary password for basic authentication with nodes. '
+                   'Must be provided if --basic-user is specified.')
+@click.option('--failover-basic-user',
+              help='Secondary username for basic authentication with nodes. '
+                   'Used as a fallback if primary authentication fails.')
+@click.option('--failover-basic-password',
+              help='Secondary password for basic authentication with nodes. '
+                   'Must be provided if --failover-basic-user is specified.')
 @click.option('--header', '-H',
               multiple=True,
               callback=http_headers_parser,
@@ -436,6 +496,13 @@ CONFIGPARSER_CONVERTERS = {
                    'Header name and value should be separated by colon, e.g. '
                    '"Authorization: Bearer xxxxx". Several headers can be added '
                    'by repeating the -H parameter.')
+@click.option('--failover-header',
+              multiple=True,
+              callback=http_headers_parser,
+              help='Failover HTTP header to include in requests to the Elasticsearch cluster. '
+                   'Header name and value should be separated by colon, e.g. '
+                   '"Authorization: Bearer xxxxx". Several headers can be added '
+                   'by repeating the --failover-header parameter.')
 @click.option('--port', '-p', default=9206,
               help='Port to serve the metrics endpoint on. (default: 9206)')
 @click.option('--query-disable', default=False, is_flag=True,
@@ -510,14 +577,9 @@ CONFIGPARSER_CONVERTERS = {
 @click_config_file.configuration_option()
 def cli(**options):
     """Export Elasticsearch query results to Prometheus."""
-    if options['basic_user'] and options['basic_password'] is None:
-        raise click.BadOptionUsage('basic_user', 'Username provided with no password.')
-    elif options['basic_user'] is None and options['basic_password']:
-        raise click.BadOptionUsage('basic_password', 'Password provided with no username.')
-    elif options['basic_user']:
-        http_auth = (options['basic_user'], options['basic_password'])
-    else:
-        http_auth = None
+
+    http_auth = set_auth(options['basic_user'], options['basic_password'])
+    http_auth_failover = set_auth(options['failover_basic_user'], options['failover_basic_password'])
 
     if not options['ca_certs'] and options['client_cert']:
         raise click.BadOptionUsage('client_cert',
@@ -562,19 +624,15 @@ def cli(**options):
     port = options['port']
     es_cluster = options['es_cluster'].split(',')
 
-    if options['ca_certs']:
-        es_client = Elasticsearch(es_cluster,
-                                  verify_certs=True,
-                                  ca_certs=options['ca_certs'],
-                                  client_cert=options['client_cert'],
-                                  client_key=options['client_key'],
-                                  headers=options['header'],
-                                  http_auth=http_auth)
-    else:
-        es_client = Elasticsearch(es_cluster,
-                                  verify_certs=False,
-                                  headers=options['header'],
-                                  http_auth=http_auth)
+    es_client = create_es_client(es_cluster,
+                                 ca_certs=options['ca_certs'],
+                                 client_cert=options['client_cert'],
+                                 client_key=options['client_key'],
+                                 headers=options['header'],
+                                 headers_failover=options['failover_header'],
+                                 http_auth=http_auth,
+                                 http_auth_failover=http_auth_failover,
+                                 verify_certs=bool(options['ca_certs']))
 
     scheduler = None
 
