@@ -273,7 +273,7 @@ class MultiChoice(click.ParamType):
         self.choices = choices
         self.case_sensitive = case_sensitive
 
-    def get_metavar(self, param):
+    def get_metavar(self, param, ctx=None):
         return '[%s]' % '|'.join(self.choices)
 
     def get_missing_message(self, param):
