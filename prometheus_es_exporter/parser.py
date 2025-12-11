@@ -127,7 +127,7 @@ def parse_hit(hit, field_names, metric):
          labels, 1))
 
 
-def parse_response(response, fields, metric=None):
+def parse_response(response, fields=None, metric=None):
     if metric is None:
         metric = []
 
