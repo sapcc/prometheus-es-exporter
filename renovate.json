@@ -1,0 +1,43 @@
+{
+  "enabled": true,
+  "schedule": [
+    "before 3am on the first day of the month"
+  ],
+  "extends": [
+    "config:recommended"
+  ],
+  "prHourlyLimit": 15,
+  "separateMinorPatch": false,
+  "separateMajorMinor": true,
+  "major": {
+    "enabled": true
+  },
+  "minor": {
+    "enabled": true
+  },
+  "pip_setup": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchDatasources": ["pypi"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "matchDepTypes": ["require"],
+      "matchPackageNames": ["elasticsearch"],
+      "enabled": true,
+      "allowedVersions": "<7.11"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "enabled": true,
+      "pinDigests": false
+    }
+  ],
+  "ignoreDeps": [],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  }
+}
