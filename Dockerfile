@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/library/python:3.13-alpine
+FROM --platform=linux/amd64 keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/library/python:3.14-alpine
 
 WORKDIR /usr/src/app
 
